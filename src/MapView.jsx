@@ -7,7 +7,6 @@ import L from "leaflet";
    担当者ごとの色付きピンを作成する関数
 ==================================== */
 const createColoredIcon = (color) => {
-  // SVGを使って色付きのピンを生成します
   const svgTemplate = `
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="${color}" width="32" height="32">
       <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
@@ -29,8 +28,8 @@ const createColoredIcon = (color) => {
 function LocationMarker({ addMarker, staffList, selectedStaff }) {
   useMapEvents({
     click(e) {
-      // 担当者がALLの場合は、最初の担当者をデフォルトにするか入力を促す
-      const defaultStaff = selectedStaff === "ALL" ? staffList[0] : selectedStaff;
+      // ★修正：selectedStaffがALLでない前提のロジックに簡略化
+      const defaultStaff = selectedStaff;
       
       const shopName = prompt("店舗名（施設名）を入力してください");
       if (!shopName) return;
@@ -59,12 +58,18 @@ export default function MapView({
   staffList,
   selectedStaff,
   setSelectedStaff,
-  staffColors, // App.jsから渡される色の設定
+  staffColors,
 }) {
-  const center = [26.6622, 127.8891]; 
+  const center = [26.6622, 127.8891];
 
   return (
-    <div style={{ height: "100%", position: "relative" }}>
+    <div
+      style={{
+        height: "70vh",   
+        width: "100%",
+        position: "relative",
+      }}
+    >
       {/* 担当者フィルター */}
       <div
         style={{
@@ -74,16 +79,19 @@ export default function MapView({
           zIndex: 1000,
           background: "white",
           padding: "8px",
-          borderRadius: "4px",
-          boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+          borderRadius: "6px",
+          boxShadow: "0 2px 6px rgba(0,0,0,0.2)",
         }}
       >
-        <span style={{ fontSize: "12px", fontWeight: "bold" }}>担当者フィルター：</span>
+        <span style={{ fontSize: "12px", fontWeight: "bold" }}>
+          担当者フィルター：
+        </span>
         <select
           value={selectedStaff}
           onChange={(e) => setSelectedStaff(e.target.value)}
+          style={{ marginLeft: "4px" }}
         >
-          <option value="ALL">ALL (全員)</option>
+          {/* ★修正1: 「ALL」を削除 */}
           {staffList.map((s) => (
             <option key={s} value={s}>{s}</option>
           ))}
@@ -95,9 +103,10 @@ export default function MapView({
         zoom={11}
         style={{ height: "100%", width: "100%" }}
       >
+        {/* ★修正4: 山や標高を消し、道路をスッキリ見せるデザイン（CartoDB Positron）に変更 */}
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+          url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
         />
 
         <LocationMarker
@@ -107,7 +116,6 @@ export default function MapView({
         />
 
         {markers.map((m) => {
-          // 担当者の色を取得、なければグレーにする
           const color = staffColors[m.staff] || "#9ca3af";
           const icon = createColoredIcon(color);
 
@@ -119,7 +127,9 @@ export default function MapView({
                     担当：{m.staff}
                   </div>
                   <strong style={{ fontSize: "16px" }}>{m.shopName}</strong>
-                  <p style={{ margin: "4px 0", color: "#666", fontSize: "12px" }}>{m.address}</p>
+                  <p style={{ margin: "4px 0", color: "#666", fontSize: "12px" }}>
+                    {m.address}
+                  </p>
                   <hr style={{ margin: "8px 0", border: "none", borderTop: "1px solid #eee" }} />
                   <button
                     onClick={() => deleteMarker(m.id)}
@@ -127,9 +137,9 @@ export default function MapView({
                       background: "#fee2e2",
                       color: "#b91c1c",
                       border: "1px solid #f87171",
-                      padding: "2px 8px",
-                      borderRadius: "4px",
-                      fontSize: "11px",
+                      padding: "4px 10px",
+                      borderRadius: "6px",
+                      fontSize: "12px",
                       cursor: "pointer",
                     }}
                   >

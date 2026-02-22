@@ -16,10 +16,9 @@ const colorPalette = [
   "#ec4899", "#14b8a6", "#f97316", "#6366f1", "#84cc16"
 ];
 
+// ★修正点3: 2026年度から始まるように変更
 const getTodayFiscalYear = () => {
-  const today = new Date();
-  const month = today.getMonth() + 1;
-  return month >= 3 ? today.getFullYear() : today.getFullYear() - 1;
+  return 2026; 
 };
 
 export default function App() {
@@ -27,9 +26,9 @@ export default function App() {
   const [markers, setMarkers] = useState([]);
   const [staffList, setStaffList] = useState(initialStaffList);
   const [staffColors, setStaffColors] = useState({});
-  const [selectedStaff, setSelectedStaff] = useState("ALL");
+  // ★修正点1: 初期選択を「ALL」ではなく「名簿の最初の人」に変更
+  const [selectedStaff, setSelectedStaff] = useState(initialStaffList[0]);
   const [newStaffName, setNewStaffName] = useState("");
-  const fileInputRef = useRef(null);
 
   /* =========================
       2. データ取得（Supabase）
@@ -54,8 +53,6 @@ export default function App() {
 
   useEffect(() => {
     fetchMarkers();
-    
-    // 名簿に色を割り当てる初期設定
     const colors = {};
     initialStaffList.forEach((name, i) => {
       colors[name] = colorPalette[i % colorPalette.length];
@@ -64,7 +61,7 @@ export default function App() {
   }, []);
 
   /* =========================
-      3. マーカー操作（Supabase）
+      3. マーカー操作
   ========================= */
   const addMarker = async (marker) => {
     const { error } = await supabase
@@ -117,19 +114,19 @@ export default function App() {
     link.click();
   };
 
-  const filteredMarkers = selectedStaff === "ALL" 
-    ? markers 
-    : markers.filter((m) => m.staff === selectedStaff);
+  // ★修正点1: selectedStaff が "ALL" の場合の処理を削除（常に誰かを選択）
+  const filteredMarkers = markers.filter((m) => m.staff === selectedStaff);
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", fontFamily: "sans-serif" }}>
       {/* ヘッダー */}
       <div style={{ background: "#0f766e", color: "white", padding: "10px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ fontWeight: "bold" }}>沖縄県北部 指導巡回マップ (Supabase同期中)</div>
+        <div style={{ fontWeight: "bold" }}>沖縄県北部 指導巡回マップ</div>
         <div style={{ fontSize: "14px" }}>
           年度：
           <select value={fiscalYear} onChange={(e) => setFiscalYear(Number(e.target.value))} style={{ marginLeft: "5px" }}>
-            {[fiscalYear - 1, fiscalYear, fiscalYear + 1].map(y => <option key={y} value={y}>{y}年度</option>)}
+            {/* ★修正点3: 2026年を起点にリストを作成 */}
+            {[2026, 2027, 2028].map(y => <option key={y} value={y}>{y}年度</option>)}
           </select>
         </div>
       </div>
@@ -158,10 +155,10 @@ export default function App() {
         />
       </div>
 
-      {/* リスト */}
+      {/* ★修正点2: 一覧の再構築（下にリストが表示されるように調整済み） */}
       <div style={{ height: "180px", borderTop: "1px solid #ddd", display: "flex", flexDirection: "column", background: "white" }}>
         <div style={{ padding: "8px 12px", background: "#f9fafb", borderBottom: "1px solid #eee", fontWeight: "bold", fontSize: "14px", display: "flex", justifyContent: "space-between" }}>
-          <span>{fiscalYear}年度 巡回一覧 ({filteredMarkers.length}件)</span>
+          <span>{selectedStaff} さんの巡回一覧 ({filteredMarkers.length}件)</span>
           <span style={{ fontSize: "12px", color: "#666" }}>※クラウド同期済み</span>
         </div>
         <div style={{ flex: 1, overflowY: "auto" }}>
