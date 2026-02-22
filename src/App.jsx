@@ -1,170 +1,131 @@
-import { useEffect, useState, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import MapView from "./MapView";
-import MarkerList from "./MarkerList";
-import { supabase } from "./supabaseClient";
+import { db } from "./firebase";
+import { collection, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp } from "firebase/firestore";
 
-/* =========================
-   1. 指導員の名簿と色の設定
-========================= */
-const initialStaffList = [
-  "松本", "比嘉", "島袋", "徳田", "森川", 
-  "崎原", "あきな", "津田", "金城"
-];
-
-const colorPalette = [
-  "#ef4444", "#3b82f6", "#10b981", "#f59e0b", "#8b5cf6",
-  "#ec4899", "#14b8a6", "#f97316", "#6366f1", "#84cc16"
-];
-
-// ★修正点3: 2026年度から始まるように変更
-const getTodayFiscalYear = () => {
-  return 2026; 
-};
-
-export default function App() {
-  const [fiscalYear, setFiscalYear] = useState(getTodayFiscalYear());
+function App() {
   const [markers, setMarkers] = useState([]);
-  const [staffList, setStaffList] = useState(initialStaffList);
-  const [staffColors, setStaffColors] = useState({});
-  // ★修正点1: 初期選択を「ALL」ではなく「名簿の最初の人」に変更
-  const [selectedStaff, setSelectedStaff] = useState(initialStaffList[0]);
+  const [staffList, setStaffList] = useState([]); // データベースから読み込む
+  const [selectedStaff, setSelectedStaff] = useState("ALL");
   const [newStaffName, setNewStaffName] = useState("");
 
-  /* =========================
-      2. データ取得（Supabase）
-  ========================= */
-  const fetchMarkers = async () => {
-    const { data, error } = await supabase.from('facilities').select('*');
-    if (error) {
-      console.error("読み込みエラー:", error);
-    } else if (data) {
-      const formatted = data.map(m => ({
-        id: m.id,
-        shopName: m.name,
-        address: m.address,
-        lat: parseFloat(m.lat),
-        lng: parseFloat(m.lng),
-        date: m.created_at,
-        staff: m.staff || "未設定"
-      }));
-      setMarkers(formatted);
-    }
+  const staffColors = {
+    松本: "#ff4444", 比嘉: "#44ff44", 徳田: "#4444ff", 
+    島袋: "#ffaa00", 津田: "#9b59b6", 宮里: "#1abc9c", 
+    あきな: "#f1c40f", 金城: "#e67e22", その他: "#9ca3af"
   };
 
   useEffect(() => {
-    fetchMarkers();
-    const colors = {};
-    initialStaffList.forEach((name, i) => {
-      colors[name] = colorPalette[i % colorPalette.length];
+    // 1. ピン情報の取得
+    const unsubMarkers = onSnapshot(collection(db, "markers"), (snapshot) => {
+      setMarkers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
-    setStaffColors(colors);
+
+    // 2. 担当者リストの取得
+    const unsubStaff = onSnapshot(collection(db, "staffs"), (snapshot) => {
+      const sData = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
+      setStaffList(sData);
+    });
+
+    return () => { unsubMarkers(); unsubStaff(); };
   }, []);
 
-  /* =========================
-      3. マーカー操作
-  ========================= */
-  const addMarker = async (marker) => {
-    const { error } = await supabase
-      .from('facilities')
-      .insert([{ 
-        name: marker.shopName, 
-        address: marker.address || "", 
-        lat: marker.lat, 
-        lng: marker.lng,
-        staff: marker.staff 
-      }]);
-
-    if (error) {
-      alert("保存エラー: " + error.message);
-    } else {
-      fetchMarkers();
-    }
-  };
-
-  const deleteMarker = async (id) => {
-    if (!window.confirm("このデータを削除しますか？")) return;
-    const { error } = await supabase.from('facilities').delete().eq('id', id);
-    if (error) alert("削除エラー: " + error.message);
-    else fetchMarkers();
-  };
-
-  /* =========================
-      4. 担当者の追加
-  ========================= */
-  const handleAddStaff = () => {
-    const name = newStaffName.trim();
-    if (!name || staffList.includes(name)) return;
-
-    setStaffList(prev => [...prev, name]);
-    const usedColors = Object.values(staffColors);
-    const newColor = colorPalette.find(c => !usedColors.includes(c)) || "#666666";
-    setStaffColors(prev => ({ ...prev, [name]: newColor }));
+  // 担当者を追加する
+  const addStaff = async (e) => {
+    e.preventDefault();
+    if (!newStaffName.trim()) return;
+    await addDoc(collection(db, "staffs"), { name: newStaffName });
     setNewStaffName("");
   };
 
-  const exportCSV = () => {
-    if (markers.length === 0) return alert("データがありません");
-    const header = ["店名", "住所", "担当者", "緯度", "経度"];
-    const rows = markers.map((m) => [m.shopName, m.address, m.staff, m.lat, m.lng]);
-    const csvContent = [header, ...rows].map((row) => row.join(",")).join("\n");
-    const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `巡回データ_${fiscalYear}.csv`;
-    link.click();
+  // 担当者そのものを削除する（辞めた人など）
+  const deleteStaff = async (id, name) => {
+    if (window.confirm(`担当者「${name}」をリストから削除しますか？\n（※その人が立てたピンは地図に残ります）`)) {
+      await deleteDoc(doc(db, "staffs", id));
+    }
   };
 
-  // ★修正点1: selectedStaff が "ALL" の場合の処理を削除（常に誰かを選択）
-  const filteredMarkers = markers.filter((m) => m.staff === selectedStaff);
+  const addMarker = async (data) => {
+    await addDoc(collection(db, "markers"), { ...data, createdAt: serverTimestamp() });
+  };
+
+  const deleteMarker = async (id) => {
+    if (window.confirm("このデータを削除しますか？")) {
+      await deleteDoc(doc(db, "markers", id));
+    }
+  };
 
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", fontFamily: "sans-serif" }}>
-      {/* ヘッダー */}
-      <div style={{ background: "#0f766e", color: "white", padding: "10px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ fontWeight: "bold" }}>沖縄県北部 指導巡回マップ</div>
-        <div style={{ fontSize: "14px" }}>
-          年度：
-          <select value={fiscalYear} onChange={(e) => setFiscalYear(Number(e.target.value))} style={{ marginLeft: "5px" }}>
-            {/* ★修正点3: 2026年を起点にリストを作成 */}
-            {[2026, 2027, 2028].map(y => <option key={y} value={y}>{y}年度</option>)}
-          </select>
-        </div>
-      </div>
+    <div className="App" style={{ fontFamily: "sans-serif", padding: "10px" }}>
+      <header style={{ background: "#2c3e50", color: "#fff", padding: "10px", textAlign: "center", borderRadius: "8px" }}>
+        <h1 style={{ margin: 0, fontSize: "18px" }}>北部巡回マップ 2026</h1>
+      </header>
 
-      {/* ツールバー */}
-      <div style={{ padding: "8px 12px", background: "#f3f4f6", display: "flex", gap: "15px", alignItems: "center", borderBottom: "1px solid #ddd" }}>
-        <button onClick={exportCSV} style={{ padding: "5px 10px", cursor: "pointer" }}>CSV保存</button>
-        <div style={{ borderLeft: "2px solid #ccc", height: "20px" }}></div>
-        <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
-          <span style={{ fontSize: "13px", fontWeight: "bold" }}>担当者追加:</span>
-          <input value={newStaffName} onChange={(e) => setNewStaffName(e.target.value)} placeholder="氏名" style={{ padding: "4px", width: "100px", borderRadius: "4px", border: "1px solid #ccc" }} />
-          <button onClick={handleAddStaff} style={{ padding: "4px 8px", background: "#0d9488", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}>追加</button>
-        </div>
-      </div>
-
-      {/* 地図 */}
-      <div style={{ flex: 1, position: "relative" }}>
+      <main>
         <MapView
-          markers={filteredMarkers}
+          markers={markers}
           addMarker={addMarker}
           deleteMarker={deleteMarker}
-          staffList={staffList}
+          staffList={staffList.map(s => s.name)} // 名前だけの配列にして渡す
           selectedStaff={selectedStaff}
           setSelectedStaff={setSelectedStaff}
           staffColors={staffColors}
         />
-      </div>
 
-      {/* ★修正点2: 一覧の再構築（下にリストが表示されるように調整済み） */}
-      <div style={{ height: "180px", borderTop: "1px solid #ddd", display: "flex", flexDirection: "column", background: "white" }}>
-        <div style={{ padding: "8px 12px", background: "#f9fafb", borderBottom: "1px solid #eee", fontWeight: "bold", fontSize: "14px", display: "flex", justifyContent: "space-between" }}>
-          <span>{selectedStaff} さんの巡回一覧 ({filteredMarkers.length}件)</span>
-          <span style={{ fontSize: "12px", color: "#666" }}>※クラウド同期済み</span>
-        </div>
-        <div style={{ flex: 1, overflowY: "auto" }}>
-          <MarkerList markers={filteredMarkers} deleteMarker={deleteMarker} />
-        </div>
-      </div>
+        <hr style={{ margin: "20px 0" }} />
+
+        {/* ★ここが新機能：担当者の管理 */}
+        <section style={{ background: "#fdfdfd", padding: "15px", borderRadius: "8px", border: "1px solid #ddd", marginBottom: "20px" }}>
+          <h3 style={{ marginTop: 0 }}>👤 担当者の管理</h3>
+          <form onSubmit={addStaff} style={{ marginBottom: "10px" }}>
+            <input 
+              value={newStaffName} 
+              onChange={(e) => setNewStaffName(e.target.value)} 
+              placeholder="新しい担当者名"
+              style={{ padding: "8px", marginRight: "5px" }}
+            />
+            <button type="submit" style={{ padding: "8px" }}>追加</button>
+          </form>
+          
+          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+            {staffList.map(s => (
+              <span key={s.id} style={{ background: "#eee", padding: "5px 10px", borderRadius: "15px", fontSize: "14px" }}>
+                {s.name} 
+                <button onClick={() => deleteStaff(s.id, s.name)} style={{ marginLeft: "8px", border: "none", color: "red", cursor: "pointer", fontWeight: "bold" }}>×</button>
+              </span>
+            ))}
+          </div>
+        </section>
+
+        <section style={{ background: "white", padding: "15px", borderRadius: "8px", boxShadow: "0 2px 5px rgba(0,0,0,0.1)" }}>
+          <h3>📋 巡回先リスト</h3>
+          {/* ...（以前と同じテーブル）... */}
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ textAlign: "left", borderBottom: "2px solid #eee" }}>
+                <th style={{ padding: "8px" }}>店舗名</th>
+                <th style={{ padding: "8px" }}>担当</th>
+                <th style={{ padding: "8px", textAlign: "center" }}>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {markers
+                .filter(m => selectedStaff === "ALL" || m.staff === selectedStaff)
+                .map((m) => (
+                  <tr key={m.id} style={{ borderBottom: "1px solid #eee" }}>
+                    <td style={{ padding: "8px" }}>{m.shopName}</td>
+                    <td style={{ padding: "8px" }}>{m.staff}</td>
+                    <td style={{ padding: "8px", textAlign: "center" }}>
+                      <button onClick={() => deleteMarker(m.id)} style={{ background: "#ff7675", color: "white", border: "none", padding: "5px 10px", borderRadius: "4px" }}>削除</button>
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </section>
+      </main>
     </div>
   );
 }
+
+export default App;
