@@ -5,125 +5,134 @@ import { collection, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp } from 
 
 function App() {
   const [markers, setMarkers] = useState([]);
-  const [staffList, setStaffList] = useState([]); // データベースから読み込む
+  const [staffList, setStaffList] = useState([]);
   const [selectedStaff, setSelectedStaff] = useState("ALL");
   const [newStaffName, setNewStaffName] = useState("");
 
   const staffColors = {
-    松本: "#ff4444", 比嘉: "#44ff44", 徳田: "#4444ff", 
-    島袋: "#ffaa00", 津田: "#9b59b6", 宮里: "#1abc9c", 
-    あきな: "#f1c40f", 金城: "#e67e22", その他: "#9ca3af"
+    松本: "#ff4444", 比嘉: "#44ff44", 徳田: "#4444ff", 島袋: "#ffaa00",
+    津田: "#9b59b6", 宮里: "#1abc9c", あきな: "#f1c40f", 金城: "#e67e22", その他: "#9ca3af"
   };
 
   useEffect(() => {
-    // 1. ピン情報の取得
     const unsubMarkers = onSnapshot(collection(db, "markers"), (snapshot) => {
-      setMarkers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      const sorted = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+      setMarkers(sorted);
     });
-
-    // 2. 担当者リストの取得
     const unsubStaff = onSnapshot(collection(db, "staffs"), (snapshot) => {
-      const sData = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
-      setStaffList(sData);
+      setStaffList(snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name })));
     });
-
     return () => { unsubMarkers(); unsubStaff(); };
   }, []);
 
-  // 担当者を追加する
-  const addStaff = async (e) => {
-    e.preventDefault();
-    if (!newStaffName.trim()) return;
+  const handleLocate = () => {
+    if (!navigator.geolocation) {
+      alert("GPSに対応していません。");
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        const event = new CustomEvent("flyToLocation", { 
+          detail: { lat: latitude, lng: longitude } 
+        });
+        window.dispatchEvent(event);
+      },
+      () => alert("位置情報を許可してください。"),
+      { enableHighAccuracy: true }
+    );
+  };
+
+  const addStaff = async () => {
+    if (!newStaffName) return;
     await addDoc(collection(db, "staffs"), { name: newStaffName });
     setNewStaffName("");
   };
 
-  // 担当者そのものを削除する（辞めた人など）
-  const deleteStaff = async (id, name) => {
-    if (window.confirm(`担当者「${name}」をリストから削除しますか？\n（※その人が立てたピンは地図に残ります）`)) {
-      await deleteDoc(doc(db, "staffs", id));
-    }
+  const deleteStaff = async (id) => {
+    if (window.confirm("スタッフを削除しますか？")) await deleteDoc(doc(db, "staffs", id));
   };
 
-  const addMarker = async (data) => {
-    await addDoc(collection(db, "markers"), { ...data, createdAt: serverTimestamp() });
+  const addMarker = async (newMarker) => {
+    await addDoc(collection(db, "markers"), { ...newMarker, createdAt: serverTimestamp() });
   };
 
   const deleteMarker = async (id) => {
-    if (window.confirm("このデータを削除しますか？")) {
-      await deleteDoc(doc(db, "markers", id));
-    }
+    if (window.confirm("記録を削除しますか？")) await deleteDoc(doc(db, "markers", id));
   };
 
+  const displayCount = selectedStaff === "ALL" 
+    ? markers.length 
+    : markers.filter(m => m.staff === selectedStaff).length;
+
   return (
-    <div className="App" style={{ fontFamily: "sans-serif", padding: "10px" }}>
-      <header style={{ background: "#2c3e50", color: "#fff", padding: "10px", textAlign: "center", borderRadius: "8px" }}>
-        <h1 style={{ margin: 0, fontSize: "18px" }}>北部巡回マップ 2026</h1>
+    <div style={{ padding: "10px", maxWidth: "1250px", margin: "0 auto", fontFamily: "sans-serif", backgroundColor: "#f4f7f6", minHeight: "100vh" }}>
+      
+      {/* 🛠 ヘッダーを「横並び一行」に特化 */}
+      <header style={{ 
+        background: "#2c3e50", color: "#fff", padding: "10px 20px", 
+        borderRadius: "8px", marginBottom: "15px",
+        display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap"
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
+          <h1 style={{ margin: "0", fontSize: "20px" }}>北部巡回マップ</h1>
+          {/* ボタンの背景色を赤っぽくして、出た瞬間にすぐ気づくようにします */}
+          <button 
+            onClick={handleLocate}
+            style={{
+              padding: "8px 12px", background: "#e67e22", color: "#white", border: "none",
+              borderRadius: "4px", fontWeight: "bold", cursor: "pointer", fontSize: "14px"
+            }}
+          >
+            📍現在地を取得
+          </button>
+        </div>
+
+        <div style={{ fontSize: "14px" }}>
+          {selectedStaff === "ALL" ? "総件数" : `${selectedStaff}さん`}: <b>{displayCount}</b> 件
+        </div>
       </header>
 
-      <main>
-        <MapView
-          markers={markers}
-          addMarker={addMarker}
-          deleteMarker={deleteMarker}
-          staffList={staffList.map(s => s.name)} // 名前だけの配列にして渡す
-          selectedStaff={selectedStaff}
-          setSelectedStaff={setSelectedStaff}
-          staffColors={staffColors}
-        />
+      <MapView
+        markers={markers} 
+        addMarker={addMarker}
+        deleteMarker={deleteMarker}
+        staffList={staffList.map(s => s.name)} 
+        selectedStaff={selectedStaff}
+        setSelectedStaff={setSelectedStaff} 
+        staffColors={staffColors}
+      />
 
-        <hr style={{ margin: "20px 0" }} />
+      {/* 訪問場所リスト */}
+      <section style={{ marginTop: "20px" }}>
+        <h3 style={{ fontSize: "15px", color: "#7f8c8d" }}>訪問場所一覧</h3>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "10px", maxHeight: "250px", overflowY: "auto" }}>
+          {markers.map(m => (
+            <div key={m.id} style={{ background: "#fff", padding: "10px", borderRadius: "8px", borderLeft: `5px solid ${staffColors[m.staff] || "#ccc"}`, fontSize: "13px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <b>{m.shopName}</b>
+                <button onClick={() => deleteMarker(m.id)} style={{ border: "none", background: "none", color: "#e74c3c", cursor: "pointer" }}>×</button>
+              </div>
+              <div>{m.date} / {m.staff}</div>
+            </div>
+          ))}
+        </div>
+      </section>
 
-        {/* ★ここが新機能：担当者の管理 */}
-        <section style={{ background: "#fdfdfd", padding: "15px", borderRadius: "8px", border: "1px solid #ddd", marginBottom: "20px" }}>
-          <h3 style={{ marginTop: 0 }}>👤 担当者の管理</h3>
-          <form onSubmit={addStaff} style={{ marginBottom: "10px" }}>
-            <input 
-              value={newStaffName} 
-              onChange={(e) => setNewStaffName(e.target.value)} 
-              placeholder="新しい担当者名"
-              style={{ padding: "8px", marginRight: "5px" }}
-            />
-            <button type="submit" style={{ padding: "8px" }}>追加</button>
-          </form>
-          
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-            {staffList.map(s => (
-              <span key={s.id} style={{ background: "#eee", padding: "5px 10px", borderRadius: "15px", fontSize: "14px" }}>
-                {s.name} 
-                <button onClick={() => deleteStaff(s.id, s.name)} style={{ marginLeft: "8px", border: "none", color: "red", cursor: "pointer", fontWeight: "bold" }}>×</button>
-              </span>
-            ))}
-          </div>
-        </section>
-
-        <section style={{ background: "white", padding: "15px", borderRadius: "8px", boxShadow: "0 2px 5px rgba(0,0,0,0.1)" }}>
-          <h3>📋 巡回先リスト</h3>
-          {/* ...（以前と同じテーブル）... */}
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ textAlign: "left", borderBottom: "2px solid #eee" }}>
-                <th style={{ padding: "8px" }}>店舗名</th>
-                <th style={{ padding: "8px" }}>担当</th>
-                <th style={{ padding: "8px", textAlign: "center" }}>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {markers
-                .filter(m => selectedStaff === "ALL" || m.staff === selectedStaff)
-                .map((m) => (
-                  <tr key={m.id} style={{ borderBottom: "1px solid #eee" }}>
-                    <td style={{ padding: "8px" }}>{m.shopName}</td>
-                    <td style={{ padding: "8px" }}>{m.staff}</td>
-                    <td style={{ padding: "8px", textAlign: "center" }}>
-                      <button onClick={() => deleteMarker(m.id)} style={{ background: "#ff7675", color: "white", border: "none", padding: "5px 10px", borderRadius: "4px" }}>削除</button>
-                    </td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-        </section>
-      </main>
+      {/* スタッフ設定 */}
+      <div style={{ marginTop: "20px", padding: "15px", background: "#fff", borderRadius: "8px", border: "1px solid #eee" }}>
+        <input value={newStaffName} onChange={(e) => setNewStaffName(e.target.value)} placeholder="スタッフ名" style={{ padding: "8px" }} />
+        <button onClick={addStaff} style={{ marginLeft: "5px", padding: "8px 15px", background: "#34495e", color: "white", border: "none" }}>追加</button>
+        <div style={{ marginTop: "10px", display: "flex", flexWrap: "wrap", gap: "5px" }}>
+          {staffList.map(s => (
+            <span key={s.id} style={{ background: "#eee", padding: "2px 8px", borderRadius: "10px", fontSize: "12px" }}>
+              {s.name} <button onClick={() => deleteStaff(s.id)} style={{ border: "none", background: "none", color: "red" }}>×</button>
+            </span>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
