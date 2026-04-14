@@ -70,7 +70,7 @@ function App() {
   return (
     <div style={{ padding: "10px", maxWidth: "1250px", margin: "0 auto", fontFamily: "sans-serif", backgroundColor: "#f4f7f6", minHeight: "100vh" }}>
       
-      {/* 🛠 ヘッダーを「横並び一行」に特化 */}
+      {/* ヘッダーセクション */}
       <header style={{ 
         background: "#2c3e50", color: "#fff", padding: "10px 20px", 
         borderRadius: "8px", marginBottom: "15px",
@@ -78,11 +78,11 @@ function App() {
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
           <h1 style={{ margin: "0", fontSize: "20px" }}>北部巡回マップ</h1>
-          {/* ボタンの背景色を赤っぽくして、出た瞬間にすぐ気づくようにします */}
+          {/* ボタンの背景色をオレンジ、文字色を白(white)に修正 */}
           <button 
             onClick={handleLocate}
             style={{
-              padding: "8px 12px", background: "#e67e22", color: "#white", border: "none",
+              padding: "8px 16px", background: "#e67e22", color: "white", border: "none",
               borderRadius: "4px", fontWeight: "bold", cursor: "pointer", fontSize: "14px"
             }}
           >
