@@ -5,32 +5,56 @@ import { collection, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp } from 
 
 function App() {
   const [markers, setMarkers] = useState([]);
-  const [staffList, setStaffList] = useState([]); // データベースから読み込む
+  const [staffList, setStaffList] = useState([]);
   const [selectedStaff, setSelectedStaff] = useState("ALL");
   const [newStaffName, setNewStaffName] = useState("");
+  // ★自分の現在地を保存しておくための変数（ステート）
+  const [myLocation, setMyLocation] = useState(null);
 
   const staffColors = {
-    松本: "#ff4444", 比嘉: "#44ff44", 徳田: "#4444ff", 
-    島袋: "#ffaa00", 津田: "#9b59b6", 宮里: "#1abc9c", 
+    松本: "#ff4444", 比嘉: "#44ff44", 徳田: "#4444ff",
+    島袋: "#ffaa00", 津田: "#9b59b6", 宮里: "#1abc9c",
     あきな: "#f1c40f", 金城: "#e67e22", その他: "#9ca3af"
   };
 
   useEffect(() => {
-    // 1. ピン情報の取得
     const unsubMarkers = onSnapshot(collection(db, "markers"), (snapshot) => {
       setMarkers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
-
-    // 2. 担当者リストの取得
     const unsubStaff = onSnapshot(collection(db, "staffs"), (snapshot) => {
-      const sData = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
-      setStaffList(sData);
+      setStaffList(snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name })));
     });
-
     return () => { unsubMarkers(); unsubStaff(); };
   }, []);
 
-  // 担当者を追加する
+  // ★現在地を取得して、地図上に表示する機能
+  const handleLocate = () => {
+    if (!navigator.geolocation) {
+      alert("GPSに対応していません。");
+      return;
+    }
+    
+    // 現在の場所を探しにいきます
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        
+        // 1. 自分の場所を保存（これで地図に青い丸などが出せるようになります）
+        setMyLocation({ lat: latitude, lng: longitude });
+
+        // 2. 地図側に「ここへ移動して！」という合図を送る
+        const event = new CustomEvent("flyToLocation", { 
+          detail: { lat: latitude, lng: longitude } 
+        });
+        window.dispatchEvent(event);
+      },
+      () => {
+        alert("位置情報の取得に失敗しました。スマホの設定でブラウザの位置許可がオンになっているか確認してください。");
+      },
+      { enableHighAccuracy: true } // なるべく正確な場所を取得する設定
+    );
+  };
+
   const addStaff = async (e) => {
     e.preventDefault();
     if (!newStaffName.trim()) return;
@@ -38,9 +62,8 @@ function App() {
     setNewStaffName("");
   };
 
-  // 担当者そのものを削除する（辞めた人など）
   const deleteStaff = async (id, name) => {
-    if (window.confirm(`担当者「${name}」をリストから削除しますか？\n（※その人が立てたピンは地図に残ります）`)) {
+    if (window.confirm(`担当者「${name}」を削除しますか？`)) {
       await deleteDoc(doc(db, "staffs", id));
     }
   };
@@ -55,18 +78,47 @@ function App() {
     }
   };
 
+  const totalCount = markers.length;
+  const myCount = selectedStaff === "ALL" ? markers.length : markers.filter(m => m.staff === selectedStaff).length;
+
   return (
-    <div className="App" style={{ fontFamily: "sans-serif", padding: "10px" }}>
-      <header style={{ background: "#2c3e50", color: "#fff", padding: "10px", textAlign: "center", borderRadius: "8px" }}>
+    <div className="App" style={{ fontFamily: "sans-serif", padding: "10px", maxWidth: "1200px", margin: "0 auto" }}>
+      
+      {/* ヘッダー：タイトルの横にボタンを配置 */}
+      <header style={{ 
+        background: "#2c3e50", color: "#fff", padding: "15px", 
+        borderRadius: "8px", display: "flex", justifyContent: "space-between", alignItems: "center" 
+      }}>
         <h1 style={{ margin: 0, fontSize: "18px" }}>北部巡回マップ 2026</h1>
+        
+        <button 
+          onClick={handleLocate}
+          style={{
+            padding: "8px 16px", background: "#e67e22", color: "white", 
+            border: "none", borderRadius: "4px", fontWeight: "bold", cursor: "pointer",
+            boxShadow: "0 2px 4px rgba(0,0,0,0.2)"
+          }}
+        >
+          📍現在地を表示
+        </button>
       </header>
 
+      {/* 件数表示 */}
+      <section style={{ background: "#f7f9fb", padding: "12px", marginTop: "10px", borderRadius: "8px", border: "1px solid #ddd", textAlign: "center" }}>
+        <div style={{ fontSize: "16px", fontWeight: "bold" }}>総訪問件数：{totalCount}件</div>
+        {selectedStaff !== "ALL" && (
+          <div style={{ marginTop: "5px", fontSize: "15px" }}>あなたの訪問件数：{myCount}件</div>
+        )}
+      </section>
+
       <main>
+        {/* ★MapViewに myLocation を渡すことで、自分の場所を表示できるようにします */}
         <MapView
           markers={markers}
+          myLocation={myLocation}
           addMarker={addMarker}
           deleteMarker={deleteMarker}
-          staffList={staffList.map(s => s.name)} // 名前だけの配列にして渡す
+          staffList={staffList.map(s => s.name)}
           selectedStaff={selectedStaff}
           setSelectedStaff={setSelectedStaff}
           staffColors={staffColors}
@@ -74,32 +126,25 @@ function App() {
 
         <hr style={{ margin: "20px 0" }} />
 
-        {/* ★ここが新機能：担当者の管理 */}
+        {/* 担当者管理 */}
         <section style={{ background: "#fdfdfd", padding: "15px", borderRadius: "8px", border: "1px solid #ddd", marginBottom: "20px" }}>
           <h3 style={{ marginTop: 0 }}>👤 担当者の管理</h3>
           <form onSubmit={addStaff} style={{ marginBottom: "10px" }}>
-            <input 
-              value={newStaffName} 
-              onChange={(e) => setNewStaffName(e.target.value)} 
-              placeholder="新しい担当者名"
-              style={{ padding: "8px", marginRight: "5px" }}
-            />
+            <input value={newStaffName} onChange={(e) => setNewStaffName(e.target.value)} placeholder="新しい担当者名" style={{ padding: "8px", marginRight: "5px" }} />
             <button type="submit" style={{ padding: "8px" }}>追加</button>
           </form>
-          
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
             {staffList.map(s => (
               <span key={s.id} style={{ background: "#eee", padding: "5px 10px", borderRadius: "15px", fontSize: "14px" }}>
-                {s.name} 
-                <button onClick={() => deleteStaff(s.id, s.name)} style={{ marginLeft: "8px", border: "none", color: "red", cursor: "pointer", fontWeight: "bold" }}>×</button>
+                {s.name} <button onClick={() => deleteStaff(s.id, s.name)} style={{ border: "none", color: "red", cursor: "pointer" }}>×</button>
               </span>
             ))}
           </div>
         </section>
 
+        {/* 巡回先リスト */}
         <section style={{ background: "white", padding: "15px", borderRadius: "8px", boxShadow: "0 2px 5px rgba(0,0,0,0.1)" }}>
           <h3>📋 巡回先リスト</h3>
-          {/* ...（以前と同じテーブル）... */}
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ textAlign: "left", borderBottom: "2px solid #eee" }}>
@@ -109,17 +154,15 @@ function App() {
               </tr>
             </thead>
             <tbody>
-              {markers
-                .filter(m => selectedStaff === "ALL" || m.staff === selectedStaff)
-                .map((m) => (
-                  <tr key={m.id} style={{ borderBottom: "1px solid #eee" }}>
-                    <td style={{ padding: "8px" }}>{m.shopName}</td>
-                    <td style={{ padding: "8px" }}>{m.staff}</td>
-                    <td style={{ padding: "8px", textAlign: "center" }}>
-                      <button onClick={() => deleteMarker(m.id)} style={{ background: "#ff7675", color: "white", border: "none", padding: "5px 10px", borderRadius: "4px" }}>削除</button>
-                    </td>
-                  </tr>
-                ))}
+              {markers.filter(m => selectedStaff === "ALL" || m.staff === selectedStaff).map((m) => (
+                <tr key={m.id} style={{ borderBottom: "1px solid #eee" }}>
+                  <td style={{ padding: "8px" }}>{m.shopName}</td>
+                  <td style={{ padding: "8px" }}>{m.staff}</td>
+                  <td style={{ padding: "8px", textAlign: "center" }}>
+                    <button onClick={() => deleteMarker(m.id)} style={{ background: "#ff7675", color: "white", border: "none", padding: "5px 10px", borderRadius: "4px" }}>削除</button>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </section>
